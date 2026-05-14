@@ -70,14 +70,6 @@ jobs:
           docker ps
 
           curl -I http://localhost:8081
-
-      # --------------------------------
-      # Get Default API Key
-      # --------------------------------
-      - name: Read API Key
-        run: |
-          docker logs dependency-track 2>&1 | grep "API key"
-
       # --------------------------------
       # Upload BOM
       # --------------------------------
