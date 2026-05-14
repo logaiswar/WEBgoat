@@ -1,4 +1,4 @@
-name: SBOM Dependency-Track Pipeline
+name: WebGoat SBOM Pipeline
 
 on:
   push:
@@ -12,24 +12,29 @@ jobs:
 
     env:
       DTRACK_URL: http://YOUR_DEPENDENCY_TRACK_SERVER:8080
-      PROJECT_NAME: NodeGoat
+      PROJECT_NAME: WebGoat
       PROJECT_VERSION: "1.0"
 
     steps:
-      # Checkout Source Code
-      - name: Checkout Code
+      # Checkout Repository
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      # Install Node.js
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # Setup Java
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          node-version: 22
+          distribution: temurin
+          java-version: 21
 
-      # Install Application Dependencies
-      - name: Install Dependencies
+      # Verify Maven
+      - name: Verify Maven
+        run: mvn -version
+
+      # Build WebGoat
+      - name: Build Application
         run: |
-          npm install
+          mvn clean install -DskipTests
 
       # Install Syft
       - name: Install Syft
@@ -41,15 +46,10 @@ jobs:
       - name: Verify Syft
         run: syft version
 
-      # Generate CycloneDX SBOM
-      - name: Generate SBOM
+      # Generate SBOM
+      - name: Generate CycloneDX SBOM
         run: |
           syft . -o cyclonedx-json > sbom.json
-
-      # Display SBOM File
-      - name: Show SBOM
-        run: |
-          cat sbom.json | head -50
 
       # Upload SBOM Artifact
       - name: Upload SBOM Artifact
@@ -74,18 +74,18 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
           | sh -s -- -b /usr/local/bin
 
-      # Scan SBOM with Grype
-      - name: Scan SBOM
+      # Scan SBOM
+      - name: Scan SBOM with Grype
         run: |
           grype sbom:sbom.json -o table
 
-      # Save Grype Report
+      # Export Grype JSON Report
       - name: Export Grype Report
         run: |
           grype sbom:sbom.json -o json > grype-report.json
 
-      # Upload Vulnerability Report
-      - name: Upload Vulnerability Artifact
+      # Upload Grype Report
+      - name: Upload Vulnerability Report
         uses: actions/upload-artifact@v4
         with:
           name: grype-report
