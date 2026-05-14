@@ -1,4 +1,4 @@
-name: WebGoat SBOM & Vulnerability Scan
+name: WebGoat SBOM & Vulnerability 
 
 on:
   push:
