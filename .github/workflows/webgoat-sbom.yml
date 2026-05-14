@@ -20,12 +20,18 @@ jobs:
       - name: Checkout Source
         uses: actions/checkout@v4
 
-      # Setup Java
+      # Setup Java 25
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: 25
+
+      # Verify Java
+      - name: Verify Java
+        run: |
+          java -version
+          javac -version
 
       # Verify Maven
       - name: Verify Maven
@@ -46,10 +52,15 @@ jobs:
       - name: Verify Syft
         run: syft version
 
-      # Generate SBOM
-      - name: Generate CycloneDX SBOM
+      # Generate CycloneDX SBOM
+      - name: Generate SBOM
         run: |
           syft . -o cyclonedx-json > sbom.json
+
+      # Display SBOM Summary
+      - name: Show SBOM
+        run: |
+          cat sbom.json | head -50
 
       # Upload SBOM Artifact
       - name: Upload SBOM Artifact
@@ -74,17 +85,21 @@ jobs:
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh \
           | sh -s -- -b /usr/local/bin
 
+      # Verify Grype
+      - name: Verify Grype
+        run: grype version
+
       # Scan SBOM
       - name: Scan SBOM with Grype
         run: |
           grype sbom:sbom.json -o table
 
-      # Export Grype JSON Report
-      - name: Export Grype Report
+      # Export JSON Report
+      - name: Export Grype JSON Report
         run: |
           grype sbom:sbom.json -o json > grype-report.json
 
-      # Upload Grype Report
+      # Upload Vulnerability Report
       - name: Upload Vulnerability Report
         uses: actions/upload-artifact@v4
         with:
