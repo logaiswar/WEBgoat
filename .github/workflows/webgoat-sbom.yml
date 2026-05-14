@@ -84,8 +84,7 @@ jobs:
       # ---------------------------------
       - name: Publish BOM to Dependency-Track
         run: |
-          curl -X POST "http://localhost:8081/projects/d5daa6b8-71f3-4b87-9d12-a1f73972ba8f/api/v1/bom" \
-          -H "X-Api-Key: odt_3Dl3N4oI_cTeKg6XpuyyI2WkCrJ4M06eoBoIWK2lv" \
+          curl -X POST "http://localhost:8081" \
           -H "Content-Type: multipart/form-data" \
           -F "autoCreate=true" \
           -F "projectName=WebGoat" \
