@@ -1,4 +1,4 @@
-name: WebGoat SBOM & Vulnerability 
+name: WebGoat SBOM & Vulnerability Scan
 
 on:
   push:
@@ -18,16 +18,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------------------
+      # Checkout Source
+      # -----------------------------------
       - name: Checkout Source
         uses: actions/checkout@v4
 
+      # -----------------------------------
+      # Setup Java 25
+      # -----------------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
 
-      - name: Setup Maven Cache
+      # -----------------------------------
+      # Verify Java
+      # -----------------------------------
+      - name: Verify Java Version
+        run: |
+          java -version
+          mvn -version
+
+      # -----------------------------------
+      # Cache Maven
+      # -----------------------------------
+      - name: Cache Maven Dependencies
         uses: actions/cache@v4
         with:
           path: ~/.m2
@@ -35,63 +52,70 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
 
-      # -----------------------------
-      # Build Application
-      # -----------------------------
+      # -----------------------------------
+      # Build WebGoat
+      # -----------------------------------
       - name: Build WebGoat
-        run: mvn clean install -DskipTests
+        run: |
+          mvn clean install -DskipTests
 
-      # -----------------------------
+      # -----------------------------------
       # Install Syft
-      # -----------------------------
+      # -----------------------------------
       - name: Install Syft
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
-      # -----------------------------
-      # Generate SBOM
-      # -----------------------------
+      # -----------------------------------
+      # Generate CycloneDX SBOM
+      # -----------------------------------
       - name: Generate CycloneDX SBOM
         run: |
-          syft . -o cyclonedx-json > webgoat-sbom.json
+          syft dir:. -o cyclonedx-json > webgoat-sbom.json
 
+      # -----------------------------------
+      # Generate SPDX SBOM
+      # -----------------------------------
       - name: Generate SPDX SBOM
         run: |
-          syft . -o spdx-json > webgoat-spdx.json
+          syft dir:. -o spdx-json > webgoat-spdx.json
 
-      # -----------------------------
+      # -----------------------------------
       # Install Grype
-      # -----------------------------
+      # -----------------------------------
       - name: Install Grype
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-      # -----------------------------
+      # -----------------------------------
       # Vulnerability Scan
-      # -----------------------------
-      - name: Scan SBOM for Vulnerabilities
+      # -----------------------------------
+      - name: Scan SBOM
         run: |
           grype sbom:webgoat-sbom.json -o table > vulnerability-report.txt
 
+      # -----------------------------------
+      # Generate SARIF
+      # -----------------------------------
       - name: Generate SARIF Report
         run: |
           grype sbom:webgoat-sbom.json -o sarif > grype-report.sarif
 
-      # -----------------------------
-      # Upload SARIF to GitHub Security
-      # -----------------------------
-      - name: Upload SARIF Report
+      # -----------------------------------
+      # Upload SARIF
+      # -----------------------------------
+      - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: grype-report.sarif
 
-      # -----------------------------
-      # Upload Reports
-      # -----------------------------
-      - name: Upload SBOM Reports
+      # -----------------------------------
+      # Upload Artifacts
+      # -----------------------------------
+      - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
-          name: webgoat-sbom-reports
+          name: webgoat-security-reports
           path: |
             webgoat-sbom.json
             webgoat-spdx.json
