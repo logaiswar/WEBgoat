@@ -1,4 +1,4 @@
-name: WebGoat SBOM
+name: WebGoat SBOM + SCA Security Pipeline
 
 on:
   push:
@@ -14,20 +14,20 @@ permissions:
   actions: read
 
 jobs:
-  security-scan:
+  sbom-sca-scan:
     runs-on: ubuntu-latest
 
     steps:
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Checkout Source
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Setup Java 25
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -35,155 +35,153 @@ jobs:
           java-version: '25'
           cache: maven
 
-      # -----------------------------------------
-      # Verify Java
-      # -----------------------------------------
+      # ------------------------------------------------
+      # Verify Environment
+      # ------------------------------------------------
       - name: Verify Java & Maven
         run: |
           java -version
           mvn -version
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Build WebGoat
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Build WebGoat
         run: |
           mvn clean install -DskipTests
 
-      # -----------------------------------------
-      # Install Syft
-      # -----------------------------------------
+      # ------------------------------------------------
+      # Install Syft (SBOM Generator)
+      # ------------------------------------------------
       - name: Install Syft
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Verify Syft
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Verify Syft
         run: syft version
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Generate CycloneDX SBOM
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Generate CycloneDX SBOM
         run: |
           syft dir:. -o cyclonedx-json > webgoat-sbom.json
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Generate SPDX SBOM
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Generate SPDX SBOM
         run: |
           syft dir:. -o spdx-json > webgoat-spdx.json
 
-      # -----------------------------------------
-      # Install Grype
-      # -----------------------------------------
+      # ------------------------------------------------
+      # Install Grype (SCA Scanner)
+      # ------------------------------------------------
       - name: Install Grype
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Verify Grype
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Verify Grype
         run: grype version
 
-      # -----------------------------------------
-      # Vulnerability Scan
-      # -----------------------------------------
-      - name: Scan SBOM for Vulnerabilities
+      # ------------------------------------------------
+      # Run SCA Vulnerability Scan
+      # ------------------------------------------------
+      - name: Run SCA Scan
         run: |
-          grype sbom:webgoat-sbom.json -o table > vulnerability-report.txt
+          grype sbom:webgoat-sbom.json -o table > sca-report.txt
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Generate SARIF Report
-      # -----------------------------------------
-      - name: Generate SARIF Report
+      # ------------------------------------------------
+      - name: Generate SARIF
         run: |
           grype sbom:webgoat-sbom.json -o sarif > grype-report.sarif
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Upload SARIF to GitHub Security
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: Upload SARIF
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: grype-report.sarif
 
-      # -----------------------------------------
-      # Install Node.js
-      # -----------------------------------------
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-
-      # -----------------------------------------
-      # Install SBOM HTML Generator
-      # -----------------------------------------
-      - name: Install CycloneDX Generator
+      # ------------------------------------------------
+      # Create HTML Report
+      # ------------------------------------------------
+      - name: Generate HTML Security Report
         run: |
-          npm install -g @cyclonedx/cdxgen
-
-      # -----------------------------------------
-      # Generate HTML Report
-      # -----------------------------------------
-      - name: Generate HTML SBOM Report
-        run: |
-          cat > webgoat-sbom.html <<EOF
+          cat > security-report.html <<EOF
           <html>
           <head>
-            <title>WebGoat SBOM Report</title>
+            <title>WebGoat Security Report</title>
             <style>
               body {
-                font-family: Arial, sans-serif;
+                font-family: Arial;
                 margin: 40px;
                 background: #f4f4f4;
               }
               h1 {
-                color: #333;
+                color: #222;
               }
               pre {
-                background: white;
+                background: #fff;
                 padding: 20px;
                 border-radius: 8px;
-                overflow-x: auto;
                 border: 1px solid #ccc;
+                overflow-x: auto;
               }
             </style>
           </head>
           <body>
-            <h1>WebGoat SBOM Report</h1>
-            <pre>
+
+          <h1>WebGoat SBOM Report</h1>
+          <pre>
           EOF
 
-          cat webgoat-sbom.json >> webgoat-sbom.html
+          cat webgoat-sbom.json >> security-report.html
 
-          cat >> webgoat-sbom.html <<EOF
-            </pre>
+          cat >> security-report.html <<EOF
+
+          </pre>
+
+          <h1>SCA Vulnerability Report</h1>
+          <pre>
+          EOF
+
+          cat sca-report.txt >> security-report.html
+
+          cat >> security-report.html <<EOF
+
+          </pre>
+
           </body>
           </html>
           EOF
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Upload Reports
-      # -----------------------------------------
-      - name: Upload Security Reports
+      # ------------------------------------------------
+      - name: Upload Security Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: webgoat-security-reports
           path: |
             webgoat-sbom.json
             webgoat-spdx.json
-            vulnerability-report.txt
+            sca-report.txt
             grype-report.sarif
-            webgoat-sbom.html
+            security-report.html
 
-      # -----------------------------------------
+      # ------------------------------------------------
       # Display Files
-      # -----------------------------------------
+      # ------------------------------------------------
       - name: List Generated Files
         run: |
           ls -lah
