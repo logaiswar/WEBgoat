@@ -1,65 +1,52 @@
 name: Trivy SBOM Scan
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-      - master
-  pull_request:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-  security-events: write
 
 jobs:
-  trivy:
+  scan:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      security-events: write
+
     steps:
-      - name: Checkout Source
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache Maven Repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-m2
+
+      - name: Resolve Maven Dependencies
+        run: mvn dependency:resolve
 
       - name: Install Trivy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
           wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
-          trivy --version
 
-      - name: Filesystem Scan
-        run: |
-          trivy fs . \
-            --severity HIGH,CRITICAL \
-            --exit-code 0 \
-            --format table
-
-      - name: Generate CycloneDX SBOM
+      - name: Generate SBOM
         run: |
           trivy fs . \
             --format cyclonedx \
             --output sbom.json \
             --exit-code 0
 
-      - name: Verify SBOM
-        run: |
-          ls -l
-          test -f sbom.json
-
-      - name: Upload SBOM Artifact
+      - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
           name: sbom
           path: sbom.json
-
-      - name: Generate SARIF
-        run: |
-          trivy fs . \
-            --format sarif \
-            --output trivy-results.sarif \
-            --exit-code 0
-
-      - name: Upload SARIF
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: trivy-results.sarif
