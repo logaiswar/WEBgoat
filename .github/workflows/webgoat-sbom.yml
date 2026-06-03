@@ -1,97 +1,51 @@
-name: WebGoat SBOM + Dependency-Track
+name: Trivy Scan and Generate SBOM
 
 on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
-  sbom-scan:
+  trivy-scan:
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: write
+      security-events: write
+
     steps:
-      # --------------------------------
-      # Checkout Source
-      # --------------------------------
-      - name: Checkout Code
+      - name: Checkout Source
         uses: actions/checkout@v4
 
-      # --------------------------------
-      # Setup Java
-      # --------------------------------
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
+      - name: Install Trivy
+        uses: aquasecurity/trivy-action@master
 
-      # --------------------------------
-      # Fix Java Version
-      # --------------------------------
-      - name: Fix pom.xml
+      - name: Run Trivy Vulnerability Scan
         run: |
-          sed -i 's/<maven.compiler.release>25<\/maven.compiler.release>/<maven.compiler.release>21<\/maven.compiler.release>/g' pom.xml || true
-          sed -i 's/<java.version>25<\/java.version>/<java.version>21<\/java.version>/g' pom.xml || true
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --format table
 
-      # --------------------------------
-      # Build WebGoat
-      # --------------------------------
-      - name: Build Application
-        run: mvn clean install -DskipTests
-
-      # --------------------------------
-      # Generate SBOM
-      # --------------------------------
       - name: Generate CycloneDX SBOM
         run: |
-          mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
+          trivy fs . \
+            --format cyclonedx \
+            --output sbom.json
 
-      # --------------------------------
-      # Start Dependency-Track
-      # --------------------------------
-      - name: Run Dependency-Track
-        run: |
-          docker pull dependencytrack/bundled:latest
-
-          docker run -d \
-            --name dependency-track \
-            -p 8081:8080 \
-            dependencytrack/bundled:latest
-
-      # --------------------------------
-      # Wait for Dependency-Track
-      # --------------------------------
-      - name: Wait for Dependency-Track Startup
-        run: |
-          echo "Waiting for Dependency-Track..."
-          sleep 180
-
-          docker ps
-
-          curl -I http://localhost:8081
-      # --------------------------------
-      # Upload BOM
-      # --------------------------------
-      - name: Upload BOM to Dependency-Track
-        env:
-          DTRACK_API_KEY: ${{ secrets.DTRACK_API_KEY }}
-        run: |
-          curl -X POST "http://localhost:8081/api/v1/bom" \
-          -H "X-Api-Key: odt_3Dl3N4oI_cTeKg6XpuyyI2WkCrJ4M06eoBoIWK2lv" \
-          -H "Content-Type: multipart/form-data" \
-          -F "autoCreate=true" \
-          -F "projectName=WebGoat" \
-          -F "projectVersion=1.0.${{ github.run_number }}" \
-          -F "bom=@target/bom.xml"
-
-      # --------------------------------
-      # Upload SBOM Artifact
-      # --------------------------------
       - name: Upload SBOM Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webgoat-sbom
-          path: |
-            target/bom.xml
-            target/bom.json
+          name: sbom-report
+          path: sbom.json
+
+      - name: Upload SARIF Report
+        run: |
+          trivy fs . \
+            --format sarif \
+            --output trivy-results.sarif
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
