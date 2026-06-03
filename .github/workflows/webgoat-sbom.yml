@@ -1,4 +1,4 @@
-name: Trivy SBOM Scan
+name: WebGoat SBOM Scan
 
 on:
   workflow_dispatch:
@@ -7,46 +7,54 @@ on:
       - main
 
 jobs:
-  scan:
+  sbom-scan:
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      security-events: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Source
+        uses: actions/checkout@v4
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
-      - name: Cache Maven Repository
-        uses: actions/cache@v4
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-m2
-
-      - name: Resolve Maven Dependencies
-        run: mvn dependency:resolve
+      - name: Generate CycloneDX SBOM
+        run: |
+          mvn org.cyclonedx:cyclonedx-maven-plugin:makeAggregateBom
 
       - name: Install Trivy
         run: |
-          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.66.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.66.0_Linux-64bit.deb
 
-      - name: Generate SBOM
+      - name: Scan SBOM
         run: |
-          trivy fs . \
-            --format cyclonedx \
-            --output sbom.json \
-            --exit-code 0
+          trivy sbom target/bom.json \
+            --format json \
+            --output trivy-report.json
 
-      - name: Upload SBOM
+      - name: Download HTML Template
+        run: |
+          curl -L \
+          https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+          -o html.tpl
+
+      - name: Generate HTML Report
+        run: |
+          trivy sbom target/bom.json \
+            --format template \
+            --template "@html.tpl" \
+            --output trivy-report.html
+
+      - name: Upload Reports
         uses: actions/upload-artifact@v4
         with:
-          name: sbom
-          path: sbom.json
+          name: webgoat-security-reports
+          path: |
+            target/bom.json
+            trivy-report.json
+            trivy-report.html
