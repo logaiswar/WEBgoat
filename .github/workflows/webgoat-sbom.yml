@@ -1,37 +1,66 @@
-name: Trivy Scan
+name: Trivy Security Scan and SBOM
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
 
 jobs:
-  scan:
+  trivy-scan:
+    name: Trivy Scan & Generate SBOM
     runs-on: ubuntu-latest
 
-    permissions:
-      contents: read
-      security-events: write
-
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-      - name: Run Trivy
-        uses: aquasecurity/trivy-action@0.33.1
+      - name: Run Trivy Vulnerability Scan
+        uses: aquasecurity/trivy-action@master
         with:
-          scan-type: fs
-          scan-ref: .
-          format: table
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'table'
+          exit-code: '0'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Generate CycloneDX SBOM
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'cyclonedx'
+          output: 'sbom.json'
+
+      - name: Verify SBOM
+        run: |
+          ls -lah
+          test -f sbom.json && echo "SBOM Generated Successfully"
+
+      - name: Upload SBOM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-sbom
+          path: sbom.json
+          retention-days: 30
+
+      - name: Generate SARIF Report
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
           exit-code: '0'
 
-      - name: Generate SBOM
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:/workspace \
-            aquasec/trivy:latest fs /workspace \
-            --format cyclonedx \
-            -o /workspace/sbom.json
-
-      - uses: actions/upload-artifact@v4
+      - name: Upload SARIF Report
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          name: sbom
-          path: sbom.json
+          sarif_file: trivy-results.sarif
