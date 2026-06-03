@@ -1,4 +1,4 @@
-name: WebGoat SBOM Security Scan
+name: WebGoat SBOM and Trivy Scan
 
 on:
 workflow_dispatch:
@@ -8,7 +8,7 @@ branches:
 - master
 
 jobs:
-sbom-scan:
+security-scan:
 runs-on: ubuntu-latest
 
 ```
@@ -16,22 +16,22 @@ permissions:
   contents: read
 
 steps:
-  - name: Checkout Repository
+  - name: Checkout Source
     uses: actions/checkout@v4
 
-  - name: Setup Java
+  - name: Setup Java 25
     uses: actions/setup-java@v4
     with:
       distribution: temurin
-      java-version: '21'
+      java-version: '25'
 
-  - name: Cache Maven Dependencies
+  - name: Setup Maven Cache
     uses: actions/cache@v4
     with:
       path: ~/.m2/repository
       key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
       restore-keys: |
-        ${{ runner.os }}-maven-
+        ${{ runner.os }}-maven
 
   - name: Build WebGoat
     run: |
@@ -43,24 +43,37 @@ steps:
 
   - name: Verify SBOM
     run: |
-      ls -la target/
-      find . -name "*.json"
+      echo "Finding SBOM files..."
+      find . -name "bom.json"
+      find . -name "*.xml"
 
   - name: Install Trivy
     run: |
       sudo apt-get update
-      sudo apt-get install -y wget rpm
+      sudo apt-get install -y wget
 
       wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-        | sudo sh -s -- -b /usr/local/bin
+      | sudo sh -s -- -b /usr/local/bin
 
       trivy --version
 
-  - name: Scan SBOM (JSON)
+  - name: Scan SBOM JSON
     run: |
-      trivy sbom target/bom.json \
+      SBOM_FILE=$(find . -name "bom.json" | head -1)
+
+      echo "Using SBOM: $SBOM_FILE"
+
+      trivy sbom "$SBOM_FILE" \
         --format json \
         --output trivy-report.json
+
+  - name: Generate Table Report
+    run: |
+      SBOM_FILE=$(find . -name "bom.json" | head -1)
+
+      trivy sbom "$SBOM_FILE" \
+        --format table \
+        --output trivy-report.txt
 
   - name: Download HTML Template
     run: |
@@ -70,7 +83,9 @@ steps:
 
   - name: Generate HTML Report
     run: |
-      trivy sbom target/bom.json \
+      SBOM_FILE=$(find . -name "bom.json" | head -1)
+
+      trivy sbom "$SBOM_FILE" \
         --format template \
         --template "@html.tpl" \
         --output trivy-report.html
@@ -78,27 +93,25 @@ steps:
   - name: Upload SBOM
     uses: actions/upload-artifact@v4
     with:
-      name: sbom-report
-      path: target/bom.json
+      name: sbom
+      path: |
+        **/bom.json
 
-  - name: Upload Trivy JSON Report
+  - name: Upload JSON Report
     uses: actions/upload-artifact@v4
     with:
       name: trivy-json-report
       path: trivy-report.json
 
-  - name: Upload Trivy HTML Report
+  - name: Upload HTML Report
     uses: actions/upload-artifact@v4
     with:
       name: trivy-html-report
       path: trivy-report.html
 
-  - name: Upload All Reports
+  - name: Upload Text Report
     uses: actions/upload-artifact@v4
     with:
-      name: webgoat-security-reports
-      path: |
-        target/bom.json
-        trivy-report.json
-        trivy-report.html
+      name: trivy-table-report
+      path: trivy-report.txt
 ```
