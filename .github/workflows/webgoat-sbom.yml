@@ -1,117 +1,78 @@
-name: WebGoat SBOM and Trivy Scan
+name: WebGoat SBOM Scan
 
 on:
-workflow_dispatch:
-push:
-branches:
-- main
-- master
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
 jobs:
-security-scan:
-runs-on: ubuntu-latest
+  sbom-scan:
+    runs-on: ubuntu-latest
 
-```
-permissions:
-  contents: read
+    steps:
+      - name: Checkout Source
+        uses: actions/checkout@v4
 
-steps:
-  - name: Checkout Source
-    uses: actions/checkout@v4
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
 
-  - name: Setup Java 25
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '25'
+      - name: Build WebGoat
+        run: mvn clean package -DskipTests
 
-  - name: Setup Maven Cache
-    uses: actions/cache@v4
-    with:
-      path: ~/.m2/repository
-      key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-      restore-keys: |
-        ${{ runner.os }}-maven
+      - name: Generate CycloneDX SBOM
+        run: |
+          mvn org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
 
-  - name: Build WebGoat
-    run: |
-      mvn clean package -DskipTests
+      - name: Locate SBOM
+        run: |
+          find . -name "bom.json"
 
-  - name: Generate CycloneDX SBOM
-    run: |
-      mvn org.cyclonedx:cyclonedx-maven-plugin:2.9.1:makeAggregateBom
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sudo sh -s -- -b /usr/local/bin
+          trivy --version
 
-  - name: Verify SBOM
-    run: |
-      echo "Finding SBOM files..."
-      find . -name "bom.json"
-      find . -name "*.xml"
+      - name: Download HTML Template
+        run: |
+          curl -L https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
-  - name: Install Trivy
-    run: |
-      sudo apt-get update
-      sudo apt-get install -y wget
+      - name: Scan SBOM JSON
+        run: |
+          SBOM=$(find . -name "bom.json" | head -1)
 
-      wget -qO- https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-      | sudo sh -s -- -b /usr/local/bin
+          trivy sbom "$SBOM" \
+            --format json \
+            --output trivy-report.json
 
-      trivy --version
+      - name: Generate HTML Report
+        run: |
+          SBOM=$(find . -name "bom.json" | head -1)
 
-  - name: Scan SBOM JSON
-    run: |
-      SBOM_FILE=$(find . -name "bom.json" | head -1)
+          trivy sbom "$SBOM" \
+            --format template \
+            --template "@html.tpl" \
+            --output trivy-report.html
 
-      echo "Using SBOM: $SBOM_FILE"
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            **/bom.json
 
-      trivy sbom "$SBOM_FILE" \
-        --format json \
-        --output trivy-report.json
+      - name: Upload HTML Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-html-report
+          path: trivy-report.html
 
-  - name: Generate Table Report
-    run: |
-      SBOM_FILE=$(find . -name "bom.json" | head -1)
-
-      trivy sbom "$SBOM_FILE" \
-        --format table \
-        --output trivy-report.txt
-
-  - name: Download HTML Template
-    run: |
-      curl -L \
-      https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
-      -o html.tpl
-
-  - name: Generate HTML Report
-    run: |
-      SBOM_FILE=$(find . -name "bom.json" | head -1)
-
-      trivy sbom "$SBOM_FILE" \
-        --format template \
-        --template "@html.tpl" \
-        --output trivy-report.html
-
-  - name: Upload SBOM
-    uses: actions/upload-artifact@v4
-    with:
-      name: sbom
-      path: |
-        **/bom.json
-
-  - name: Upload JSON Report
-    uses: actions/upload-artifact@v4
-    with:
-      name: trivy-json-report
-      path: trivy-report.json
-
-  - name: Upload HTML Report
-    uses: actions/upload-artifact@v4
-    with:
-      name: trivy-html-report
-      path: trivy-report.html
-
-  - name: Upload Text Report
-    uses: actions/upload-artifact@v4
-    with:
-      name: trivy-table-report
-      path: trivy-report.txt
-```
+      - name: Upload JSON Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-json-report
+          path: trivy-report.json
